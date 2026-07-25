@@ -22,3 +22,6 @@ test:
 
 start:
 	uvicorn backend.app.main:app --reload
+
+seed:
+	python -m backend.app.infrastructure.seed
