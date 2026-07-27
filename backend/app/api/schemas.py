@@ -69,3 +69,22 @@ class EVMResponse(BaseModel):
     spi: Optional[float]
     eac: Optional[float]
     vac: Optional[float]
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., example="lider@trycore.com")
+    password: str = Field(..., example="lider123")
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    role: str
+    email: str
+
+
+class UserProfileResponse(BaseModel):
+    user_id: int
+    email: str
+    role: str
+    full_name: Optional[str] = None
