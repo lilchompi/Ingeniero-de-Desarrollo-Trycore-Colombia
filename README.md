@@ -11,6 +11,7 @@ Full-stack EVM dashboard for project planning and earned value tracking.
 
 ## Repository structure
 
+```
 backend/   FastAPI application and tests
 frontend/  React dashboard
 ```
