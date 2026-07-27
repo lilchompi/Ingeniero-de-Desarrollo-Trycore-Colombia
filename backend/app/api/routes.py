@@ -81,7 +81,7 @@ def update_project(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    updates = payload.dict(exclude_unset=True)
+    updates = payload.model_dump(exclude_unset=True)
     next_name = updates.get("name")
     if next_name and next_name != project.name:
         existing = db_session.query(Project).filter(Project.name == next_name).first()
@@ -146,7 +146,7 @@ def update_activity(
     if not activity:
         raise HTTPException(status_code=404, detail="Activity not found")
 
-    for field, value in payload.dict(exclude_unset=True).items():
+    for field, value in payload.model_dump(exclude_unset=True).items():
         if field == "data_payload":
             activity.data_payload = value
         else:

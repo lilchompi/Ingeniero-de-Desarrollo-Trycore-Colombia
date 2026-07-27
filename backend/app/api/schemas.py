@@ -1,42 +1,41 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ActivityBase(BaseModel):
-    name: str = Field(..., example="Deploy Contract")
-    description: Optional[str] = Field(None, example="Deploy contract to local EVM")
-    kind: Optional[str] = Field(None, example="deploy")
-    status: Optional[str] = Field("pending", example="pending")
-    data_payload: Optional[Dict[str, Any]] = Field(None, example={"gas_estimate": 21000})
+    name: str = Field(..., json_schema_extra={"example": "Deploy Contract"})
+    description: Optional[str] = Field(None, json_schema_extra={"example": "Deploy contract to local EVM"})
+    kind: Optional[str] = Field(None, json_schema_extra={"example": "deploy"})
+    status: Optional[str] = Field("pending", json_schema_extra={"example": "pending"})
+    data_payload: Optional[Dict[str, Any]] = Field(None, json_schema_extra={"example": {"gas_estimate": 21000}})
 
 
 class ActivityCreate(ActivityBase):
-    project_id: int = Field(..., example=1)
+    project_id: int = Field(..., json_schema_extra={"example": 1})
 
 
 class ActivityUpdate(BaseModel):
-    name: Optional[str] = Field(None, example="Run integration tests")
-    description: Optional[str] = Field(None, example="Update activity description")
-    kind: Optional[str] = Field(None, example="test")
-    status: Optional[str] = Field(None, example="done")
-    data_payload: Optional[Dict[str, Any]] = Field(None, example={"gas_estimate": 25000})
+    name: Optional[str] = Field(None, json_schema_extra={"example": "Run integration tests"})
+    description: Optional[str] = Field(None, json_schema_extra={"example": "Update activity description"})
+    kind: Optional[str] = Field(None, json_schema_extra={"example": "test"})
+    status: Optional[str] = Field(None, json_schema_extra={"example": "done"})
+    data_payload: Optional[Dict[str, Any]] = Field(None, json_schema_extra={"example": {"gas_estimate": 25000}})
 
 
 class ActivityRead(ActivityBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     project_id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
-
 
 class ProjectBase(BaseModel):
-    name: str = Field(..., example="Demo Project")
-    description: Optional[str] = Field(None, example="EVM planning project")
-    status: Optional[str] = Field("draft", example="draft")
+    name: str = Field(..., json_schema_extra={"example": "Demo Project"})
+    description: Optional[str] = Field(None, json_schema_extra={"example": "EVM planning project"})
+    status: Optional[str] = Field("draft", json_schema_extra={"example": "draft"})
 
 
 class ProjectCreate(ProjectBase):
@@ -44,25 +43,24 @@ class ProjectCreate(ProjectBase):
 
 
 class ProjectUpdate(BaseModel):
-    name: Optional[str] = Field(None, example="Renamed Project")
-    description: Optional[str] = Field(None, example="Updated description")
-    status: Optional[str] = Field(None, example="active")
+    name: Optional[str] = Field(None, json_schema_extra={"example": "Renamed Project"})
+    description: Optional[str] = Field(None, json_schema_extra={"example": "Updated description"})
+    status: Optional[str] = Field(None, json_schema_extra={"example": "active"})
 
 
 class ProjectRead(ProjectBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     created_at: datetime
-    activities: List[ActivityRead] = []
-
-    class Config:
-        orm_mode = True
+    activities: List[ActivityRead] = Field(default_factory=list)
 
 
 class EVMRequest(BaseModel):
-    planned_value: float = Field(..., ge=0, example=100.0)
-    earned_value: float = Field(..., ge=0, example=90.0)
-    actual_cost: float = Field(..., ge=0, example=80.0)
-    budget_at_completion: float = Field(..., ge=0, example=120.0)
+    planned_value: float = Field(..., ge=0, json_schema_extra={"example": 100.0})
+    earned_value: float = Field(..., ge=0, json_schema_extra={"example": 90.0})
+    actual_cost: float = Field(..., ge=0, json_schema_extra={"example": 80.0})
+    budget_at_completion: float = Field(..., ge=0, json_schema_extra={"example": 120.0})
 
 
 class EVMResponse(BaseModel):
@@ -78,8 +76,8 @@ class EVMResponse(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: str = Field(..., example="lider@trycore.com")
-    password: str = Field(..., example="lider123")
+    email: str = Field(..., json_schema_extra={"example": "lider@trycore.com"})
+    password: str = Field(..., json_schema_extra={"example": "lider123"})
 
 
 class TokenResponse(BaseModel):

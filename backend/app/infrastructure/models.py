@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
@@ -21,7 +21,7 @@ class Project(Base):
     name = Column(String(200), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
     status = Column(String(50), nullable=False, default="draft")
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False)
 
     activities = relationship("Activity", back_populates="project", cascade="all, delete-orphan")
 
@@ -36,7 +36,7 @@ class Activity(Base):
     kind = Column(String(50), nullable=True)
     status = Column(String(50), nullable=False, default="pending")
     data_payload = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False)
 
     project = relationship("Project", back_populates="activities")
 
@@ -50,4 +50,4 @@ class User(Base):
     role = Column(String(50), nullable=False, default="viewer")
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Integer, nullable=False, default=1)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC), nullable=False)
