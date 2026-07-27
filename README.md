@@ -93,19 +93,3 @@ Windows note: if PowerShell blocks `npm`, use `npm.cmd`.
 - Lint: `ruff check .` passed
 - Frontend production build: passed (`vite build`)
 
-## Pull request preparation (release/v1.0.0 -> main)
-
-Suggested branch:
-
-```bash
-git checkout -b release/v1.0.0
-```
-
-Suggested commit messages (imperative mood):
-
-- `Prepare release v1.0.0 and verify test suite coverage`
-- `Update README with installation and execution guidelines`
-
-Suggested PR title:
-
-- `release: Version 1.0.0 release`
