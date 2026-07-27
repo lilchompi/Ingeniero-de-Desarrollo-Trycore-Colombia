@@ -43,6 +43,12 @@ class ProjectCreate(ProjectBase):
     pass
 
 
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = Field(None, example="Renamed Project")
+    description: Optional[str] = Field(None, example="Updated description")
+    status: Optional[str] = Field(None, example="active")
+
+
 class ProjectRead(ProjectBase):
     id: int
     created_at: datetime
