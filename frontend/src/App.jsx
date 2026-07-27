@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import './App.css';
 
 const API_BASE = '/api';
 const PROJECTS_CACHE_KEY = 'evm.projects.cache.v1';
+const AUTH_SESSION_KEY = 'evm.auth.session.v1';
 
 async function requestJson(url, options = {}) {
   const response = await fetch(url, options);
@@ -90,7 +92,36 @@ function writeProjectsCache(projectList) {
   }
 }
 
+function readAuthSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_SESSION_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed?.email || !parsed?.role) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeAuthSession(user) {
+  localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(user));
+}
+
+function clearAuthSession() {
+  localStorage.removeItem(AUTH_SESSION_KEY);
+}
+
 function App() {
+  const [authUser, setAuthUser] = useState(() => readAuthSession());
+  const [loginEmail, setLoginEmail] = useState('lider@trycore.com');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginRole, setLoginRole] = useState('project_lead');
+  const [authError, setAuthError] = useState('');
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [projectName, setProjectName] = useState('Proyecto Demo');
@@ -114,6 +145,39 @@ function App() {
     actual_pct: '30',
     ac: '400',
   });
+
+  const canEdit = authUser?.role === 'project_lead' || authUser?.role === 'admin';
+
+  function handleLogin(event) {
+    event.preventDefault();
+    const email = loginEmail.trim().toLowerCase();
+    if (!email || !loginPassword.trim()) {
+      setAuthError('Ingresa correo y contrasena para continuar.');
+      return;
+    }
+
+    const user = {
+      email,
+      role: loginRole,
+      displayName: email.split('@')[0],
+    };
+    setAuthUser(user);
+    writeAuthSession(user);
+    setLoginPassword('');
+    setAuthError('');
+    setMessage('Sesion iniciada.');
+  }
+
+  function handleLogout() {
+    setAuthUser(null);
+    clearAuthSession();
+    setProjects([]);
+    setSelectedProjectId('');
+    setActivities([]);
+    setSummary(null);
+    setEditingActivityId(null);
+    setMessage('Sesion cerrada.');
+  }
 
   async function fetchProjects() {
     setError('');
@@ -158,6 +222,10 @@ function App() {
   }
 
   async function createProject() {
+    if (!canEdit) {
+      setError('Tu perfil es de solo lectura para proyectos.');
+      return;
+    }
     setError('');
     setMessage('');
     const safeName = (projectName || '').trim() || `Proyecto ${Date.now()}`;
@@ -201,6 +269,10 @@ function App() {
 
   async function addActivity(event) {
     event.preventDefault();
+    if (!canEdit) {
+      setError('Tu perfil es de solo lectura para actividades.');
+      return;
+    }
     if (!selectedProjectId) {
       setError('Selecciona un proyecto antes de crear una actividad.');
       return;
@@ -240,6 +312,10 @@ function App() {
   }
 
   async function saveActivity(activityId) {
+    if (!canEdit) {
+      setError('Tu perfil es de solo lectura para actividades.');
+      return;
+    }
     setError('');
     setMessage('');
     try {
@@ -273,6 +349,9 @@ function App() {
   }
 
   function startEdit(activity) {
+    if (!canEdit) {
+      return;
+    }
     setEditingActivityId(activity.id);
     setEditingForm({
       name: activity.name,
@@ -301,9 +380,16 @@ function App() {
     return value === null || value === undefined ? 'N/A' : Number(value).toFixed(2);
   }
 
+  function getStatusTone(value) {
+    if (value === null || value === undefined) {
+      return 'neutral';
+    }
+    return value >= 1 ? 'good' : 'warn';
+  }
+
   function renderChart() {
     if (activities.length === 0) {
-      return <p>No hay actividades para mostrar en la gráfica.</p>;
+      return <p className="muted-text">No hay actividades para mostrar en la gráfica.</p>;
     }
 
     const maxValue = Math.max(
@@ -312,32 +398,32 @@ function App() {
     );
 
     return (
-      <div>
-        <h3>Comparación PV / EV / AC</h3>
+      <div className="chart-panel">
+        <h3 className="section-title">Comparación PV / EV / AC</h3>
         {activities.map((activity) => (
-          <div key={activity.id} style={{ marginBottom: 12 }}>
-            <strong>{activity.name}</strong>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 4, marginTop: 4 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 50 }}>PV</span>
-                <div style={{ flex: 1, background: '#f0f0f0', height: 18, borderRadius: 6 }}>
-                  <div style={{ width: `${(activity.pv / maxValue) * 100}%`, height: '100%', background: '#2980b9', borderRadius: 6 }} />
+          <div key={activity.id} className="chart-item">
+            <strong className="chart-activity-name">{activity.name}</strong>
+            <div className="chart-rows">
+              <div className="chart-row">
+                <span className="metric-label">PV</span>
+                <div className="metric-track">
+                  <div className="metric-fill metric-fill-pv" style={{ width: `${(activity.pv / maxValue) * 100}%` }} />
                 </div>
-                <span style={{ width: 60, textAlign: 'right' }}>{formatNumber(activity.pv)}</span>
+                <span className="metric-value">{formatNumber(activity.pv)}</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 50 }}>EV</span>
-                <div style={{ flex: 1, background: '#f0f0f0', height: 18, borderRadius: 6 }}>
-                  <div style={{ width: `${(activity.ev / maxValue) * 100}%`, height: '100%', background: '#27ae60', borderRadius: 6 }} />
+              <div className="chart-row">
+                <span className="metric-label">EV</span>
+                <div className="metric-track">
+                  <div className="metric-fill metric-fill-ev" style={{ width: `${(activity.ev / maxValue) * 100}%` }} />
                 </div>
-                <span style={{ width: 60, textAlign: 'right' }}>{formatNumber(activity.ev)}</span>
+                <span className="metric-value">{formatNumber(activity.ev)}</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 50 }}>AC</span>
-                <div style={{ flex: 1, background: '#f0f0f0', height: 18, borderRadius: 6 }}>
-                  <div style={{ width: `${(activity.ac / maxValue) * 100}%`, height: '100%', background: '#e67e22', borderRadius: 6 }} />
+              <div className="chart-row">
+                <span className="metric-label">AC</span>
+                <div className="metric-track">
+                  <div className="metric-fill metric-fill-ac" style={{ width: `${(activity.ac / maxValue) * 100}%` }} />
                 </div>
-                <span style={{ width: 60, textAlign: 'right' }}>{formatNumber(activity.ac)}</span>
+                <span className="metric-value">{formatNumber(activity.ac)}</span>
               </div>
             </div>
           </div>
@@ -347,324 +433,346 @@ function App() {
   }
 
   useEffect(() => {
+    if (!authUser) {
+      return;
+    }
     const cachedProjects = readProjectsCache();
     if (cachedProjects.length > 0) {
       setProjects(cachedProjects);
     }
     fetchProjects();
-  }, []);
+  }, [authUser]);
 
   useEffect(() => {
+    if (!authUser) {
+      return;
+    }
     if (selectedProjectId) {
       loadProject(selectedProjectId);
     }
-  }, [selectedProjectId]);
+  }, [selectedProjectId, authUser]);
+
+  if (!authUser) {
+    return (
+      <div className="app-shell">
+        <div className="bg-orb orb-a" />
+        <div className="bg-orb orb-b" />
+
+        <main className="dashboard auth-dashboard">
+          <section className="hero">
+            <p className="kicker">Earned Value Management</p>
+            <h1>Acceso al Panel EVM</h1>
+            <p className="hero-copy">Ingresa con tu perfil para ver o editar actividades del proyecto.</p>
+          </section>
+
+          <section className="surface auth-card">
+            <h3 className="section-title">Iniciar sesion</h3>
+            <form onSubmit={handleLogin} className="auth-form">
+              <input
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                placeholder="correo@empresa.com"
+                className="control-input"
+              />
+              <input
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder="Contrasena"
+                type="password"
+                className="control-input"
+              />
+              <select value={loginRole} onChange={(e) => setLoginRole(e.target.value)} className="control-input">
+                <option value="project_lead">Lider de proyecto (edicion)</option>
+                <option value="viewer">Usuario lector (solo consulta)</option>
+              </select>
+              <button type="submit" className="btn btn-primary">Entrar</button>
+            </form>
+            {authError && <p className="auth-error">{authError}</p>}
+            <p className="muted-text auth-help">Nota: este login es de frontend para flujo UI. La validacion real se conecta en backend luego.</p>
+          </section>
+        </main>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ fontFamily: 'Arial, sans-serif', padding: 24, maxWidth: 1200, margin: '0 auto' }}>
-      <h1>Dashboard EVM</h1>
-      <p>Registra actividades, edítalas y visualiza indicadores de valor ganado en tiempo real.</p>
+    <div className="app-shell">
+      <div className="bg-orb orb-a" />
+      <div className="bg-orb orb-b" />
 
-      <section style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
-        <div>
-          <label style={{ display: 'block', marginBottom: 4 }}>Proyecto</label>
-          <select
-            value={selectedProjectId}
-            onChange={(e) => setSelectedProjectId(e.target.value)}
-            style={{ padding: 8, minWidth: 240 }}
-          >
-            <option value="">Selecciona un proyecto</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ flex: 1, minWidth: 280 }}>
-          <label style={{ display: 'block', marginBottom: 4 }}>Nuevo proyecto</label>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <input
-              value={projectName}
-              onChange={(e) => setProjectName(e.target.value)}
-              placeholder="Nombre del proyecto"
-              style={{ flex: 1, padding: 8 }}
-            />
-            <input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Descripción"
-              style={{ flex: 1, padding: 8 }}
-            />
-            <button onClick={createProject} style={{ padding: '8px 16px' }}>
-              Crear proyecto
-            </button>
+      <main className="dashboard">
+        <section className="hero">
+          <p className="kicker">Earned Value Management</p>
+          <h1>Panel de Control EVM</h1>
+          <p className="hero-copy">Registra actividades, evalua costo y cronograma, y toma decisiones con indicadores claros.</p>
+          <div className="user-strip">
+            <span className={`role-pill ${canEdit ? 'role-edit' : 'role-read'}`}>
+              {canEdit ? 'Rol: lider de proyecto' : 'Rol: solo lectura'}
+            </span>
+            <span className="user-email">{authUser.email}</span>
+            <button type="button" className="btn btn-ghost" onClick={handleLogout}>Cerrar sesion</button>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {message && <div style={{ color: '#2d6a4f', marginBottom: 16 }}>{message}</div>}
-      {error && <div style={{ color: '#b00020', marginBottom: 16 }}>{error}</div>}
-
-      {selectedProjectId ? (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 24 }}>
-            <div style={{ border: '1px solid #ddd', padding: 12, borderRadius: 8 }}>
-              <strong>BAC</strong>
-              <div style={{ marginTop: 8 }}>{formatNumber(summary?.bac)}</div>
-            </div>
-            <div style={{ border: '1px solid #ddd', padding: 12, borderRadius: 8 }}>
-              <strong>PV</strong>
-              <div style={{ marginTop: 8 }}>{formatNumber(summary?.pv)}</div>
-            </div>
-            <div style={{ border: '1px solid #ddd', padding: 12, borderRadius: 8 }}>
-              <strong>EV</strong>
-              <div style={{ marginTop: 8 }}>{formatNumber(summary?.ev)}</div>
-            </div>
-            <div style={{ border: '1px solid #ddd', padding: 12, borderRadius: 8 }}>
-              <strong>AC</strong>
-              <div style={{ marginTop: 8 }}>{formatNumber(summary?.ac)}</div>
-            </div>
-            <div style={{ border: '1px solid #ddd', padding: 12, borderRadius: 8 }}>
-              <strong>CPI</strong>
-              <div style={{ marginTop: 8, color: getStatusColor(summary?.cpi) }}>{formatNumber(summary?.cpi)}</div>
-            </div>
-            <div style={{ border: '1px solid #ddd', padding: 12, borderRadius: 8 }}>
-              <strong>SPI</strong>
-              <div style={{ marginTop: 8, color: getStatusColor(summary?.spi) }}>{formatNumber(summary?.spi)}</div>
-            </div>
-            <div style={{ border: '1px solid #ddd', padding: 12, borderRadius: 8 }}>
-              <strong>EAC</strong>
-              <div style={{ marginTop: 8 }}>{formatNumber(summary?.eac)}</div>
-            </div>
-            <div style={{ border: '1px solid #ddd', padding: 12, borderRadius: 8 }}>
-              <strong>VAC</strong>
-              <div style={{ marginTop: 8 }}>{formatNumber(summary?.vac)}</div>
-            </div>
+        <section className="surface controls-grid">
+          <div className="control-block">
+            <label className="field-label">Proyecto activo</label>
+            <select value={selectedProjectId} onChange={(e) => setSelectedProjectId(e.target.value)} className="control-input">
+              <option value="">Selecciona un proyecto</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
           </div>
 
-          <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
-            <div
-              style={{
-                padding: 12,
-                borderRadius: 8,
-                background: getStatusColor(summary?.cpi),
-                color: '#fff',
-                minWidth: 180,
-              }}
-            >
-              <strong>Costo</strong>
-              <div>{summary?.cpi_interpretation ?? 'Sin datos'}</div>
-            </div>
-            <div
-              style={{
-                padding: 12,
-                borderRadius: 8,
-                background: getStatusColor(summary?.spi),
-                color: '#fff',
-                minWidth: 180,
-              }}
-            >
-              <strong>Cronograma</strong>
-              <div>{summary?.spi_interpretation ?? 'Sin datos'}</div>
-            </div>
-          </div>
-
-          <div style={{ marginBottom: 24 }}>
-            <h3>Ingresar / editar actividades</h3>
-            <form onSubmit={addActivity} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="control-block control-block-wide">
+            <label className="field-label">Nuevo proyecto</label>
+            <div className="inline-form">
               <input
-                value={activityForm.name}
-                onChange={(e) => setActivityForm({ ...activityForm, name: e.target.value })}
-                placeholder="Nombre"
-                style={{ padding: 8, flex: 1, minWidth: 180 }}
-                required
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                placeholder="Nombre del proyecto"
+                className="control-input"
+                disabled={!canEdit}
               />
               <input
-                value={activityForm.bac}
-                onChange={(e) => setActivityForm({ ...activityForm, bac: e.target.value })}
-                placeholder="BAC"
-                style={{ padding: 8, width: 110 }}
-                required
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Descripcion"
+                className="control-input"
+                disabled={!canEdit}
               />
-              <input
-                value={activityForm.planned_pct}
-                onChange={(e) => setActivityForm({ ...activityForm, planned_pct: e.target.value })}
-                placeholder="% planificado"
-                style={{ padding: 8, width: 110 }}
-                required
-              />
-              <input
-                value={activityForm.actual_pct}
-                onChange={(e) => setActivityForm({ ...activityForm, actual_pct: e.target.value })}
-                placeholder="% real"
-                style={{ padding: 8, width: 110 }}
-                required
-              />
-              <input
-                value={activityForm.ac}
-                onChange={(e) => setActivityForm({ ...activityForm, ac: e.target.value })}
-                placeholder="AC"
-                style={{ padding: 8, width: 110 }}
-                required
-              />
-              <button type="submit" style={{ padding: '8px 16px' }}>
-                Agregar
+              <button onClick={createProject} className="btn btn-primary" type="button" disabled={!canEdit}>
+                Crear proyecto
               </button>
-            </form>
+            </div>
+            {!canEdit && <p className="muted-text lock-note">Tu perfil actual no puede crear proyectos.</p>}
           </div>
+        </section>
 
-          <div style={{ marginBottom: 24 }}>
-            <h3>Indicadores por actividad</h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th style={tableHeaderStyle}>Actividad</th>
-                  <th style={tableHeaderStyle}>BAC</th>
-                  <th style={tableHeaderStyle}>% Planif.</th>
-                  <th style={tableHeaderStyle}>% Real</th>
-                  <th style={tableHeaderStyle}>PV</th>
-                  <th style={tableHeaderStyle}>EV</th>
-                  <th style={tableHeaderStyle}>AC</th>
-                  <th style={tableHeaderStyle}>CV</th>
-                  <th style={tableHeaderStyle}>SV</th>
-                  <th style={tableHeaderStyle}>CPI</th>
-                  <th style={tableHeaderStyle}>SPI</th>
-                  <th style={tableHeaderStyle}>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activities.map((activity) => (
-                  <tr key={activity.id}>
-                    <td style={tableCellStyle}>
-                      {editingActivityId === activity.id ? (
-                        <input
-                          value={editingForm.name}
-                          onChange={(e) => setEditingForm({ ...editingForm, name: e.target.value })}
-                          style={inputCellStyle}
-                        />
-                      ) : (
-                        activity.name
-                      )}
-                    </td>
-                    <td style={tableCellStyle}>
-                      {editingActivityId === activity.id ? (
-                        <input
-                          value={editingForm.bac}
-                          onChange={(e) => setEditingForm({ ...editingForm, bac: e.target.value })}
-                          style={inputCellStyle}
-                        />
-                      ) : (
-                        formatNumber(activity.bac)
-                      )}
-                    </td>
-                    <td style={tableCellStyle}>
-                      {editingActivityId === activity.id ? (
-                        <input
-                          value={editingForm.planned_pct}
-                          onChange={(e) => setEditingForm({ ...editingForm, planned_pct: e.target.value })}
-                          style={inputCellStyle}
-                        />
-                      ) : (
-                        `${formatNumber(activity.planned_pct)}%`
-                      )}
-                    </td>
-                    <td style={tableCellStyle}>
-                      {editingActivityId === activity.id ? (
-                        <input
-                          value={editingForm.actual_pct}
-                          onChange={(e) => setEditingForm({ ...editingForm, actual_pct: e.target.value })}
-                          style={inputCellStyle}
-                        />
-                      ) : (
-                        `${formatNumber(activity.actual_pct)}%`
-                      )}
-                    </td>
-                    <td style={tableCellStyle}>{formatNumber(activity.pv)}</td>
-                    <td style={tableCellStyle}>{formatNumber(activity.ev)}</td>
-                    <td style={tableCellStyle}>
-                      {editingActivityId === activity.id ? (
-                        <input
-                          value={editingForm.ac}
-                          onChange={(e) => setEditingForm({ ...editingForm, ac: e.target.value })}
-                          style={inputCellStyle}
-                        />
-                      ) : (
-                        formatNumber(activity.ac)
-                      )}
-                    </td>
-                    <td style={tableCellStyle}>{formatNumber(activity.cv)}</td>
-                    <td style={tableCellStyle}>{formatNumber(activity.sv)}</td>
-                    <td style={{ ...tableCellStyle, color: getStatusColor(activity.cpi) }}>{formatNumber(activity.cpi)}</td>
-                    <td style={{ ...tableCellStyle, color: getStatusColor(activity.spi) }}>{formatNumber(activity.spi)}</td>
-                    <td style={tableCellStyle}>
-                      {editingActivityId === activity.id ? (
-                        <>
-                          <button type="button" onClick={() => saveActivity(activity.id)} style={actionButtonStyle}>
-                            Guardar
-                          </button>
-                          <button type="button" onClick={cancelEdit} style={cancelButtonStyle}>
-                            Cancelar
-                          </button>
-                        </>
-                      ) : (
-                        <button type="button" onClick={() => startEdit(activity)} style={actionButtonStyle}>
-                          Editar
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {message && <div className="alert success">{message}</div>}
+        {error && <div className="alert error">{error}</div>}
 
-          <div style={{ marginBottom: 24 }}>{renderChart()}</div>
-        </>
-      ) : (
-        <p>Selecciona un proyecto o crea uno nuevo para iniciar el seguimiento EVM.</p>
-      )}
+        {selectedProjectId ? (
+          <>
+            <section className="kpi-grid">
+              <article className="kpi-card">
+                <span>BAC</span>
+                <strong>{formatNumber(summary?.bac)}</strong>
+              </article>
+              <article className="kpi-card">
+                <span>PV</span>
+                <strong>{formatNumber(summary?.pv)}</strong>
+              </article>
+              <article className="kpi-card">
+                <span>EV</span>
+                <strong>{formatNumber(summary?.ev)}</strong>
+              </article>
+              <article className="kpi-card">
+                <span>AC</span>
+                <strong>{formatNumber(summary?.ac)}</strong>
+              </article>
+              <article className={`kpi-card tone-${getStatusTone(summary?.cpi)}`}>
+                <span>CPI</span>
+                <strong>{formatNumber(summary?.cpi)}</strong>
+              </article>
+              <article className={`kpi-card tone-${getStatusTone(summary?.spi)}`}>
+                <span>SPI</span>
+                <strong>{formatNumber(summary?.spi)}</strong>
+              </article>
+              <article className="kpi-card">
+                <span>EAC</span>
+                <strong>{formatNumber(summary?.eac)}</strong>
+              </article>
+              <article className="kpi-card">
+                <span>VAC</span>
+                <strong>{formatNumber(summary?.vac)}</strong>
+              </article>
+            </section>
+
+            <section className="status-grid">
+              <article className={`status-card tone-${getStatusTone(summary?.cpi)}`}>
+                <h3>Costo</h3>
+                <p>{summary?.cpi_interpretation ?? 'Sin datos'}</p>
+              </article>
+              <article className={`status-card tone-${getStatusTone(summary?.spi)}`}>
+                <h3>Cronograma</h3>
+                <p>{summary?.spi_interpretation ?? 'Sin datos'}</p>
+              </article>
+            </section>
+
+            <section className="surface form-surface">
+              <h3 className="section-title">Registrar actividad</h3>
+              <form onSubmit={addActivity} className="activity-form">
+                    <input
+                      value={activityForm.name}
+                      onChange={(e) => setActivityForm({ ...activityForm, name: e.target.value })}
+                      placeholder="Nombre"
+                      className="control-input"
+                      disabled={!canEdit}
+                      required
+                    />
+                    <input
+                      value={activityForm.bac}
+                      onChange={(e) => setActivityForm({ ...activityForm, bac: e.target.value })}
+                      placeholder="BAC"
+                      className="control-input"
+                      disabled={!canEdit}
+                      required
+                    />
+                    <input
+                      value={activityForm.planned_pct}
+                      onChange={(e) => setActivityForm({ ...activityForm, planned_pct: e.target.value })}
+                      placeholder="% planificado"
+                      className="control-input"
+                      disabled={!canEdit}
+                      required
+                    />
+                    <input
+                      value={activityForm.actual_pct}
+                      onChange={(e) => setActivityForm({ ...activityForm, actual_pct: e.target.value })}
+                      placeholder="% real"
+                      className="control-input"
+                      disabled={!canEdit}
+                      required
+                    />
+                    <input
+                      value={activityForm.ac}
+                      onChange={(e) => setActivityForm({ ...activityForm, ac: e.target.value })}
+                      placeholder="AC"
+                      className="control-input"
+                      disabled={!canEdit}
+                      required
+                    />
+                <button type="submit" className="btn btn-primary" disabled={!canEdit}>
+                  Agregar
+                </button>
+              </form>
+              {!canEdit && <p className="muted-text lock-note">Tu perfil actual no puede agregar actividades.</p>}
+            </section>
+
+            <section className="surface table-surface">
+              <h3 className="section-title">Indicadores por actividad</h3>
+              <div className="table-scroll">
+                <table className="evm-table">
+                      <thead>
+                        <tr>
+                          <th>Actividad</th>
+                          <th>BAC</th>
+                          <th>% Planif.</th>
+                          <th>% Real</th>
+                          <th>PV</th>
+                          <th>EV</th>
+                          <th>AC</th>
+                          <th>CV</th>
+                          <th>SV</th>
+                          <th>CPI</th>
+                          <th>SPI</th>
+                          <th>Accion</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activities.map((activity) => (
+                          <tr key={activity.id}>
+                            <td>
+                              {editingActivityId === activity.id ? (
+                                <input
+                                  value={editingForm.name}
+                                  onChange={(e) => setEditingForm({ ...editingForm, name: e.target.value })}
+                                  className="table-input"
+                                />
+                              ) : (
+                                activity.name
+                              )}
+                            </td>
+                            <td>
+                              {editingActivityId === activity.id ? (
+                                <input
+                                  value={editingForm.bac}
+                                  onChange={(e) => setEditingForm({ ...editingForm, bac: e.target.value })}
+                                  className="table-input"
+                                />
+                              ) : (
+                                formatNumber(activity.bac)
+                              )}
+                            </td>
+                            <td>
+                              {editingActivityId === activity.id ? (
+                                <input
+                                  value={editingForm.planned_pct}
+                                  onChange={(e) => setEditingForm({ ...editingForm, planned_pct: e.target.value })}
+                                  className="table-input"
+                                />
+                              ) : (
+                                `${formatNumber(activity.planned_pct)}%`
+                              )}
+                            </td>
+                            <td>
+                              {editingActivityId === activity.id ? (
+                                <input
+                                  value={editingForm.actual_pct}
+                                  onChange={(e) => setEditingForm({ ...editingForm, actual_pct: e.target.value })}
+                                  className="table-input"
+                                />
+                              ) : (
+                                `${formatNumber(activity.actual_pct)}%`
+                              )}
+                            </td>
+                            <td>{formatNumber(activity.pv)}</td>
+                            <td>{formatNumber(activity.ev)}</td>
+                            <td>
+                              {editingActivityId === activity.id ? (
+                                <input
+                                  value={editingForm.ac}
+                                  onChange={(e) => setEditingForm({ ...editingForm, ac: e.target.value })}
+                                  className="table-input"
+                                />
+                              ) : (
+                                formatNumber(activity.ac)
+                              )}
+                            </td>
+                            <td>{formatNumber(activity.cv)}</td>
+                            <td>{formatNumber(activity.sv)}</td>
+                            <td className={`tone-${getStatusTone(activity.cpi)}`}>{formatNumber(activity.cpi)}</td>
+                            <td className={`tone-${getStatusTone(activity.spi)}`}>{formatNumber(activity.spi)}</td>
+                            <td>
+                              {editingActivityId === activity.id ? (
+                                <div className="actions-row">
+                                  <button type="button" onClick={() => saveActivity(activity.id)} className="btn btn-small btn-primary">
+                                    Guardar
+                                  </button>
+                                  <button type="button" onClick={cancelEdit} className="btn btn-small btn-muted">
+                                    Cancelar
+                                  </button>
+                                </div>
+                              ) : !canEdit ? (
+                                <span className="muted-text">Solo lectura</span>
+                              ) : (
+                                <button type="button" onClick={() => startEdit(activity)} className="btn btn-small btn-primary">
+                                  Editar
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="surface chart-surface">{renderChart()}</section>
+          </>
+        ) : (
+          <section className="surface empty-state">
+            <h3>Selecciona un proyecto para comenzar</h3>
+            <p>Al elegir un proyecto veras KPIs, tabla editable de actividades y comparativos PV/EV/AC.</p>
+          </section>
+        )}
+      </main>
     </div>
   );
 }
-
-const tableHeaderStyle = {
-  borderBottom: '1px solid #ccc',
-  padding: 8,
-  textAlign: 'left',
-  background: '#f9f9f9',
-};
-
-const tableCellStyle = {
-  padding: 8,
-  borderBottom: '1px solid #eee',
-};
-
-const inputCellStyle = {
-  width: '100%',
-  padding: 6,
-  borderRadius: 4,
-  border: '1px solid #ccc',
-};
-
-const actionButtonStyle = {
-  padding: '6px 10px',
-  marginRight: 8,
-  borderRadius: 4,
-  border: 'none',
-  background: '#2980b9',
-  color: '#fff',
-  cursor: 'pointer',
-};
-
-const cancelButtonStyle = {
-  padding: '6px 10px',
-  borderRadius: 4,
-  border: 'none',
-  background: '#7f8c8d',
-  color: '#fff',
-  cursor: 'pointer',
-};
 
 export default App;
