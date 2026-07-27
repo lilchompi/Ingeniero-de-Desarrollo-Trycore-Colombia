@@ -957,6 +957,36 @@ function App() {
                 </option>
               ))}
             </select>
+            {canEdit && selectedProjectId && (
+              <div className="project-actions-panel">
+                <div className="project-actions-row">
+                  <label className="field-label">Renombrar proyecto</label>
+                  <div className="project-actions project-actions-inline">
+                    <input
+                      value={projectRename}
+                      onChange={(e) => setProjectRename(e.target.value)}
+                      placeholder="Nuevo nombre del proyecto"
+                      className="control-input"
+                    />
+                    <button
+                      onClick={renameSelectedProject}
+                      className="btn btn-primary"
+                      type="button"
+                      disabled={!projectRename.trim()}
+                    >
+                      Guardar nombre
+                    </button>
+                  </div>
+                </div>
+
+                <div className="project-actions-row project-danger-zone">
+                  <label className="field-label">Eliminar proyecto</label>
+                  <button onClick={deleteSelectedProject} className="btn btn-danger" type="button">
+                    Eliminar proyecto seleccionado
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="control-block control-block-wide">
@@ -976,25 +1006,6 @@ function App() {
             {!canEdit && <p className="muted-text lock-note">Tu perfil actual no puede crear proyectos.</p>}
           </div>
 
-          {canEdit && selectedProjectId && (
-            <div className="control-block control-block-manage">
-              <label className="field-label">Proyecto seleccionado</label>
-              <div className="project-actions">
-                <input
-                  value={projectRename}
-                  onChange={(e) => setProjectRename(e.target.value)}
-                  placeholder="Nuevo nombre del proyecto"
-                  className="control-input"
-                />
-                <button onClick={renameSelectedProject} className="btn btn-primary" type="button">
-                  Renombrar
-                </button>
-                <button onClick={deleteSelectedProject} className="btn btn-danger" type="button">
-                  Eliminar proyecto
-                </button>
-              </div>
-            </div>
-          )}
         </section>
 
         {message && <div className="alert success">{message}</div>}
