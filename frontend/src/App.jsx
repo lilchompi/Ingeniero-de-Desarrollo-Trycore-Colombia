@@ -9,7 +9,10 @@ async function requestJson(url, options = {}) {
   const response = await fetch(url, options);
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`${response.status} ${body || response.statusText}`);
+    const error = new Error(`${response.status} ${body || response.statusText}`);
+    error.status = response.status;
+    error.body = body;
+    throw error;
   }
   return response.json();
 }
@@ -99,7 +102,7 @@ function readAuthSession() {
       return null;
     }
     const parsed = JSON.parse(raw);
-    if (!parsed?.email || !parsed?.role) {
+    if (!parsed?.email || !parsed?.role || !parsed?.accessToken) {
       return null;
     }
     return parsed;
@@ -118,9 +121,8 @@ function clearAuthSession() {
 
 function App() {
   const [authUser, setAuthUser] = useState(() => readAuthSession());
-  const [loginEmail, setLoginEmail] = useState('lider@trycore.com');
+  const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [loginRole, setLoginRole] = useState('project_lead');
   const [authError, setAuthError] = useState('');
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
@@ -148,27 +150,64 @@ function App() {
 
   const canEdit = authUser?.role === 'project_lead' || authUser?.role === 'admin';
 
-  function handleLogin(event) {
+  async function authenticatedRequest(path, options = {}) {
+    if (!authUser?.accessToken) {
+      const authMissingError = new Error('401 Not authenticated');
+      authMissingError.status = 401;
+      throw authMissingError;
+    }
+
+    const headers = {
+      ...(options.headers || {}),
+      Authorization: `Bearer ${authUser.accessToken}`,
+    };
+
+    return requestJson(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+    });
+  }
+
+  async function handleLogin(event) {
     event.preventDefault();
     const email = loginEmail.trim().toLowerCase();
     if (!email || !loginPassword.trim()) {
-      setAuthError('Ingresa correo y contrasena para continuar.');
+      setAuthError('Ingresa correo y contraseña para continuar.');
       return;
     }
 
-    const user = {
-      email,
-      role: loginRole,
-      displayName: email.split('@')[0],
-    };
-    setAuthUser(user);
-    writeAuthSession(user);
-    setLoginPassword('');
     setAuthError('');
-    setMessage('Sesion iniciada.');
+    setMessage('');
+    setError('');
+
+    try {
+      const loginResponse = await requestJson(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: loginPassword }),
+      });
+
+      const user = {
+        email: loginResponse.email,
+        role: loginResponse.role,
+        accessToken: loginResponse.access_token,
+        displayName: loginResponse.email.split('@')[0],
+      };
+
+      setAuthUser(user);
+      writeAuthSession(user);
+      setLoginPassword('');
+      setMessage('Sesion iniciada.');
+    } catch (err) {
+      if (err.status === 404) {
+        setAuthError('El backend actual no expone /api/auth/login en esta rama.');
+        return;
+      }
+      setAuthError('Credenciales inválidas. Usa correo y contraseña del backend.');
+    }
   }
 
-  function handleLogout() {
+  function handleLogout(nextMessage = 'Sesion cerrada.') {
     setAuthUser(null);
     clearAuthSession();
     setProjects([]);
@@ -176,17 +215,21 @@ function App() {
     setActivities([]);
     setSummary(null);
     setEditingActivityId(null);
-    setMessage('Sesion cerrada.');
+    setMessage(nextMessage);
   }
 
   async function fetchProjects() {
     setError('');
     try {
-      const data = await requestJson(`${API_BASE}/projects`);
+      const data = await authenticatedRequest('/projects');
       const normalizedProjects = Array.isArray(data) ? data : [];
       setProjects(normalizedProjects);
       writeProjectsCache(normalizedProjects);
     } catch (err) {
+      if (err.status === 401) {
+        handleLogout('Sesion expirada. Inicia sesion nuevamente.');
+        return;
+      }
       setError(`No se pudo cargar la lista de proyectos. ${err.message}`);
     }
   }
@@ -201,7 +244,7 @@ function App() {
     }
 
     try {
-      const data = await requestJson(`${API_BASE}/projects/${id}`);
+      const data = await authenticatedRequest(`/projects/${id}`);
       const activities = (data.activities || []).map(normalizeActivity);
       setActivities(activities);
       setSummary(data.summary || buildSummary(activities));
@@ -217,6 +260,10 @@ function App() {
         return next;
       });
     } catch (err) {
+      if (err.status === 401) {
+        handleLogout('Sesion expirada. Inicia sesion nuevamente.');
+        return;
+      }
       setError(`No se pudo cargar el proyecto. ${err.message}`);
     }
   }
@@ -230,7 +277,7 @@ function App() {
     setMessage('');
     const safeName = (projectName || '').trim() || `Proyecto ${Date.now()}`;
     try {
-      const data = await requestJson(`${API_BASE}/projects`, {
+      const data = await authenticatedRequest('/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: safeName, description: description.trim(), status: 'active' }),
@@ -263,6 +310,14 @@ function App() {
           return;
         }
       }
+      if (err.status === 401) {
+        handleLogout('Sesion expirada. Inicia sesion nuevamente.');
+        return;
+      }
+      if (err.status === 403) {
+        setError('No tienes permisos para crear proyectos con este rol.');
+        return;
+      }
       setError(err.message);
     }
   }
@@ -285,7 +340,7 @@ function App() {
         return;
       }
 
-      await requestJson(`${API_BASE}/activities`, {
+      await authenticatedRequest('/activities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -307,6 +362,14 @@ function App() {
       setMessage('Actividad agregada correctamente.');
       await loadProject(selectedProjectId);
     } catch (err) {
+      if (err.status === 401) {
+        handleLogout('Sesion expirada. Inicia sesion nuevamente.');
+        return;
+      }
+      if (err.status === 403) {
+        setError('No tienes permisos para crear actividades con este rol.');
+        return;
+      }
       setError(`No se pudo crear la actividad. ${err.message}`);
     }
   }
@@ -325,7 +388,7 @@ function App() {
         return;
       }
 
-      await requestJson(`${API_BASE}/activities/${activityId}`, {
+      await authenticatedRequest(`/activities/${activityId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -344,6 +407,14 @@ function App() {
       setEditingForm({ name: '', bac: '1000', planned_pct: '50', actual_pct: '30', ac: '400' });
       await loadProject(selectedProjectId);
     } catch (err) {
+      if (err.status === 401) {
+        handleLogout('Sesion expirada. Inicia sesion nuevamente.');
+        return;
+      }
+      if (err.status === 403) {
+        setError('No tienes permisos para editar actividades con este rol.');
+        return;
+      }
       setError(`No se pudo actualizar la actividad. ${err.message}`);
     }
   }
@@ -477,18 +548,13 @@ function App() {
               <input
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
-                placeholder="Contrasena"
+                placeholder="Contraseña"
                 type="password"
                 className="control-input"
               />
-              <select value={loginRole} onChange={(e) => setLoginRole(e.target.value)} className="control-input">
-                <option value="project_lead">Lider de proyecto (edicion)</option>
-                <option value="viewer">Usuario lector (solo consulta)</option>
-              </select>
               <button type="submit" className="btn btn-primary">Entrar</button>
             </form>
             {authError && <p className="auth-error">{authError}</p>}
-            <p className="muted-text auth-help">Nota: este login es de frontend para flujo UI. La validacion real se conecta en backend luego.</p>
           </section>
         </main>
       </div>
@@ -514,7 +580,7 @@ function App() {
           </div>
         </section>
 
-        <section className="surface controls-grid">
+        <section className={`surface controls-grid ${!canEdit ? 'controls-grid-viewer' : ''}`}>
           <div className="control-block">
             <label className="field-label">Proyecto activo</label>
             <select value={selectedProjectId} onChange={(e) => setSelectedProjectId(e.target.value)} className="control-input">
