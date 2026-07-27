@@ -59,6 +59,11 @@ Start backend API:
 make start
 ```
 
+OpenAPI / Swagger UI:
+
+- http://127.0.0.1:8000/api-docs
+- http://127.0.0.1:8000/swagger-ui
+
 Start frontend development server:
 
 ```bash

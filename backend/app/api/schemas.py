@@ -92,3 +92,15 @@ class UserProfileResponse(BaseModel):
     email: str
     role: str
     full_name: Optional[str] = None
+
+
+class ErrorResponse(BaseModel):
+    detail: str
+
+
+class HealthResponse(BaseModel):
+    status: str
+
+
+class DeleteResponse(BaseModel):
+    detail: str
