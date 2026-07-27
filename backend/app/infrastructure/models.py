@@ -35,7 +35,7 @@ class Activity(Base):
     description = Column(Text, nullable=True)
     kind = Column(String(50), nullable=True)
     status = Column(String(50), nullable=False, default="pending")
-    metadata = Column(JSON, nullable=True)
+    data_payload = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     project = relationship("Project", back_populates="activities")

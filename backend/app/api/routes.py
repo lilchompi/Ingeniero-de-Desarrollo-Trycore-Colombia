@@ -1,0 +1,102 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from .. import db
+from ..domain.evm_service import EVMService
+from ..infrastructure.models import Activity, Project
+from .schemas import (
+    ActivityCreate,
+    ActivityRead,
+    ActivityUpdate,
+    EVMRequest,
+    EVMResponse,
+    ProjectCreate,
+    ProjectRead,
+)
+
+router = APIRouter(prefix="/api", tags=["EVM"])
+
+
+def get_db() -> Session:
+    session = db.SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@router.post("/projects", response_model=ProjectRead, status_code=201)
+def create_project(payload: ProjectCreate, db_session: Session = Depends(get_db)) -> ProjectRead:
+    existing = db_session.query(Project).filter(Project.name == payload.name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Project with this name already exists")
+
+    project = Project(
+        name=payload.name,
+        description=payload.description,
+        status=payload.status,
+    )
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+    return project
+
+
+@router.get("/projects/{project_id}", response_model=ProjectRead)
+def get_project(project_id: int, db_session: Session = Depends(get_db)) -> ProjectRead:
+    project = db_session.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+@router.post("/activities", response_model=ActivityRead, status_code=201)
+def create_activity(payload: ActivityCreate, db_session: Session = Depends(get_db)) -> ActivityRead:
+    project = db_session.query(Project).filter(Project.id == payload.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    activity = Activity(
+        project_id=payload.project_id,
+        name=payload.name,
+        description=payload.description,
+        kind=payload.kind,
+        status=payload.status,
+        data_payload=payload.data_payload,
+    )
+    db_session.add(activity)
+    db_session.commit()
+    db_session.refresh(activity)
+    return activity
+
+
+@router.patch("/activities/{activity_id}", response_model=ActivityRead)
+def update_activity(
+    activity_id: int,
+    payload: ActivityUpdate,
+    db_session: Session = Depends(get_db),
+) -> ActivityRead:
+    activity = db_session.query(Activity).filter(Activity.id == activity_id).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+
+    for field, value in payload.dict(exclude_unset=True).items():
+        if field == "data_payload":
+            activity.data_payload = value
+        else:
+            setattr(activity, field, value)
+
+    db_session.commit()
+    db_session.refresh(activity)
+    return activity
+
+
+@router.post("/evm/calculate", response_model=EVMResponse)
+def calculate_evm(payload: EVMRequest) -> EVMResponse:
+    result = EVMService.calculate(
+        planned_value=payload.planned_value,
+        earned_value=payload.earned_value,
+        actual_cost=payload.actual_cost,
+        budget_at_completion=payload.budget_at_completion,
+    )
+    return result
