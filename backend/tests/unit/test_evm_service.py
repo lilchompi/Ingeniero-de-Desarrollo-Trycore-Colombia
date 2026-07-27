@@ -1,10 +1,15 @@
 import pytest
 
-from backend.app.domain.evm_service import EVMService, EVMResult
+from backend.app.domain.evm_service import EVMService
 
 
 def test_calculate_baseline_values():
-    result = EVMService.calculate(planned_value=100.0, earned_value=90.0, actual_cost=80.0, budget_at_completion=120.0)
+    result = EVMService.calculate(
+        planned_value=100.0,
+        earned_value=90.0,
+        actual_cost=80.0,
+        budget_at_completion=120.0,
+    )
 
     assert result.pv == 100.0
     assert result.ev == 90.0
@@ -18,7 +23,12 @@ def test_calculate_baseline_values():
 
 
 def test_calculate_handles_zero_ac():
-    result = EVMService.calculate(planned_value=100.0, earned_value=90.0, actual_cost=0.0, budget_at_completion=120.0)
+    result = EVMService.calculate(
+        planned_value=100.0,
+        earned_value=90.0,
+        actual_cost=0.0,
+        budget_at_completion=120.0,
+    )
 
     assert result.cv == 90.0
     assert result.cpi is None
@@ -27,7 +37,12 @@ def test_calculate_handles_zero_ac():
 
 
 def test_calculate_handles_zero_pv():
-    result = EVMService.calculate(planned_value=0.0, earned_value=50.0, actual_cost=25.0, budget_at_completion=100.0)
+    result = EVMService.calculate(
+        planned_value=0.0,
+        earned_value=50.0,
+        actual_cost=25.0,
+        budget_at_completion=100.0,
+    )
 
     assert result.sv == 50.0
     assert result.spi is None

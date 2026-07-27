@@ -1,8 +1,0 @@
-[tool.ruff]
-line-length = 88
-extend-ignore = ["E203", "W503"]
-select = ["E", "F", "W", "C90"]
-
-[project]
-name = "evm-fullstack-template"
-version = "0.1.0"
