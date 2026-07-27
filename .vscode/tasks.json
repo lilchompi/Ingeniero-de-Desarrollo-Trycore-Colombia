@@ -1,0 +1,72 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "git-branch-current-for-openapi",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"branch",
+				"--show-current"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-create-openapi-feature-branch",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"checkout",
+				"-b",
+				"feature/openapi-swagger-docs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "openapi-ruff-check",
+			"type": "shell",
+			"command": "c:/Users/ADMIN/Pictures/Ingeniero-de-Desarrollo-Trycore-Colombia/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"ruff",
+				"check",
+				"backend/app/main.py",
+				"backend/app/api/routes.py",
+				"backend/app/api/auth_routes.py",
+				"backend/app/api/schemas.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "openapi-pytest",
+			"type": "shell",
+			"command": "c:/Users/ADMIN/Pictures/Ingeniero-de-Desarrollo-Trycore-Colombia/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"pytest",
+				"-q"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "openapi-git-status",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"status",
+				"-sb"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-status-final-initdb",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"status",
+				"-sb"
+			],
+			"isBackground": false
+		}
+	]
+}

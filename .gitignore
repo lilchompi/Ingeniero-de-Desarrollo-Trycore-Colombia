@@ -16,3 +16,5 @@ backend/dev.db
 *.db
 *.db-shm
 *.db-wal
+/.vscode
+.vscode/tasks.json
