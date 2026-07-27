@@ -1,7 +1,7 @@
-.PHONY: help install dev install-dev lint format test start
+.PHONY: help install dev install-dev lint format test start seed init-db
 
 help:
-	@echo "Available targets: install, install-dev, lint, format, test, start"
+	@echo "Available targets: install, install-dev, lint, format, test, start, init-db, seed"
 
 install:
 	python -m pip install --upgrade pip
@@ -25,3 +25,6 @@ start:
 
 seed:
 	python -m backend.app.infrastructure.seed
+
+init-db:
+	python -m backend.scripts.init_db

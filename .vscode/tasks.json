@@ -57,6 +57,16 @@
 				"-sb"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "git-status-final-initdb",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"status",
+				"-sb"
+			],
+			"isBackground": false
 		}
 	]
 }

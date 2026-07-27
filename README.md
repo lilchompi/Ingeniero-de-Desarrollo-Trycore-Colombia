@@ -51,6 +51,28 @@ Example for local development:
 set EVM_JWT_SECRET=change-me-in-local-dev
 ```
 
+## Database initialization script
+
+The repository includes a database initialization script at [backend/scripts/init_db.py](backend/scripts/init_db.py).
+
+Initialize tables and default users:
+
+```bash
+python -m backend.scripts.init_db
+```
+
+Initialize tables and load sample data (only when the database is empty):
+
+```bash
+python -m backend.scripts.init_db --with-sample-data
+```
+
+You can also run it through the Makefile:
+
+```bash
+make init-db
+```
+
 ## Run the application
 
 Start backend API:
