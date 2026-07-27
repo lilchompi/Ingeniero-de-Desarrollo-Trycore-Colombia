@@ -1,3 +1,5 @@
+from collections.abc import Generator
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -17,12 +19,17 @@ from .schemas import (
 router = APIRouter(prefix="/api", tags=["EVM"])
 
 
-def get_db() -> Session:
+def get_db() -> Generator[Session, None, None]:
     session = db.SessionLocal()
     try:
         yield session
     finally:
         session.close()
+
+
+@router.get("/projects", response_model=list[ProjectRead])
+def list_projects(db_session: Session = Depends(get_db)) -> list[ProjectRead]:
+    return db_session.query(Project).order_by(Project.id.desc()).all()
 
 
 @router.post("/projects", response_model=ProjectRead, status_code=201)
