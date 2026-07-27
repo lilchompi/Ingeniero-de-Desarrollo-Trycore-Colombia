@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from .. import db
 from ..security import authenticate_user, create_access_token, get_current_user
-from .schemas import LoginRequest, TokenResponse, UserProfileResponse
+from .schemas import ErrorResponse, LoginRequest, TokenResponse, UserProfileResponse
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
@@ -18,7 +18,16 @@ def get_db() -> Generator[Session, None, None]:
         session.close()
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Iniciar sesión",
+    description="Autentica un usuario y retorna un token bearer con su rol.",
+    responses={
+        401: {"model": ErrorResponse, "description": "Credenciales inválidas."},
+        422: {"description": "Payload inválido."},
+    },
+)
 def login(payload: LoginRequest, db_session: Session = Depends(get_db)) -> TokenResponse:
     user = authenticate_user(db_session, payload.email, payload.password)
     if user is None:
@@ -36,7 +45,13 @@ def login(payload: LoginRequest, db_session: Session = Depends(get_db)) -> Token
     return TokenResponse(access_token=access_token, role=user.role, email=user.email)
 
 
-@router.get("/me", response_model=UserProfileResponse)
+@router.get(
+    "/me",
+    response_model=UserProfileResponse,
+    summary="Perfil autenticado",
+    description="Retorna la información del usuario autenticado con el token actual.",
+    responses={401: {"model": ErrorResponse, "description": "No autenticado o token inválido."}},
+)
 def me(current_user=Depends(get_current_user)) -> UserProfileResponse:
     return UserProfileResponse(
         user_id=current_user.user_id,
