@@ -12,6 +12,8 @@ node_modules/
 frontend/node_modules/
 .DS_Store
 /.github
-dev.db
-dev.db
+/dev.db
+backend/dev.db
 *.db
+*.db-shm
+*.db-wal
