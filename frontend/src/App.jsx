@@ -1,9 +1,52 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import './App.css';
 
 const API_BASE = '/api';
 const PROJECTS_CACHE_KEY = 'evm.projects.cache.v1';
 const AUTH_SESSION_KEY = 'evm.auth.session.v1';
+
+const KPI_CONFIG = [
+  {
+    key: 'bac',
+    label: 'BAC',
+    help: 'Budget At Completion: presupuesto total aprobado del proyecto.',
+  },
+  {
+    key: 'pv',
+    label: 'PV',
+    help: 'Planned Value: valor planificado acumulado hasta la fecha.',
+  },
+  {
+    key: 'ev',
+    label: 'EV',
+    help: 'Earned Value: valor ganado por el avance realmente completado.',
+  },
+  {
+    key: 'ac',
+    label: 'AC',
+    help: 'Actual Cost: costo real ejecutado a la fecha.',
+  },
+  {
+    key: 'cpi',
+    label: 'CPI',
+    help: 'Cost Performance Index: EV / AC. Si es mayor o igual a 1, el costo va bien.',
+  },
+  {
+    key: 'spi',
+    label: 'SPI',
+    help: 'Schedule Performance Index: EV / PV. Si es mayor o igual a 1, el cronograma va bien.',
+  },
+  {
+    key: 'eac',
+    label: 'EAC',
+    help: 'Estimate At Completion: estimado total al cierre, calculado como BAC / CPI.',
+  },
+  {
+    key: 'vac',
+    label: 'VAC',
+    help: 'Variance At Completion: variacion esperada al cierre, BAC - EAC.',
+  },
+];
 
 async function requestJson(url, options = {}) {
   const response = await fetch(url, options);
@@ -126,27 +169,31 @@ function App() {
   const [authError, setAuthError] = useState('');
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [projectRename, setProjectRename] = useState('');
   const [projectName, setProjectName] = useState('Proyecto Demo');
-  const [description, setDescription] = useState('Demo técnica Trycore');
   const [activities, setActivities] = useState([]);
   const [summary, setSummary] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [activityForm, setActivityForm] = useState({
     name: '',
-    bac: '1000',
-    planned_pct: '50',
-    actual_pct: '30',
-    ac: '400',
+    bac: '',
+    planned_pct: '',
+    actual_pct: '',
+    ac: '',
   });
   const [editingActivityId, setEditingActivityId] = useState(null);
   const [editingForm, setEditingForm] = useState({
     name: '',
-    bac: '1000',
-    planned_pct: '50',
-    actual_pct: '30',
-    ac: '400',
+    bac: '',
+    planned_pct: '',
+    actual_pct: '',
+    ac: '',
   });
+  const [activitySearch, setActivitySearch] = useState('');
+  const [activityFilter, setActivityFilter] = useState('all');
+  const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
+  const [isProjectLoading, setIsProjectLoading] = useState(false);
 
   const canEdit = authUser?.role === 'project_lead' || authUser?.role === 'admin';
 
@@ -243,11 +290,14 @@ function App() {
       return;
     }
 
+    setIsProjectLoading(true);
+
     try {
       const data = await authenticatedRequest(`/projects/${id}`);
       const activities = (data.activities || []).map(normalizeActivity);
       setActivities(activities);
       setSummary(data.summary || buildSummary(activities));
+      setProjectRename(data.name || '');
       setProjects((prev) => {
         const exists = prev.some((item) => item.id === data.id);
         if (exists) {
@@ -265,6 +315,8 @@ function App() {
         return;
       }
       setError(`No se pudo cargar el proyecto. ${err.message}`);
+    } finally {
+      setIsProjectLoading(false);
     }
   }
 
@@ -280,10 +332,9 @@ function App() {
       const data = await authenticatedRequest('/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: safeName, description: description.trim(), status: 'active' }),
+        body: JSON.stringify({ name: safeName, status: 'active' }),
       });
       setProjectName('');
-      setDescription('');
       setSelectedProjectId(String(data.id));
       setProjects((prev) => {
         const exists = prev.some((item) => item.id === data.id);
@@ -340,6 +391,8 @@ function App() {
         return;
       }
 
+      const validatedMetrics = validateActivityMetrics(activityForm);
+
       await authenticatedRequest('/activities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -349,16 +402,11 @@ function App() {
           description: '',
           kind: 'planning',
           status: 'pending',
-          data_payload: {
-            bac: Number(activityForm.bac),
-            planned_pct: Number(activityForm.planned_pct),
-            actual_pct: Number(activityForm.actual_pct),
-            ac: Number(activityForm.ac),
-          },
+          data_payload: validatedMetrics,
         }),
       });
 
-      setActivityForm({ name: '', bac: '1000', planned_pct: '50', actual_pct: '30', ac: '400' });
+      setActivityForm({ name: '', bac: '', planned_pct: '', actual_pct: '', ac: '' });
       setMessage('Actividad agregada correctamente.');
       await loadProject(selectedProjectId);
     } catch (err) {
@@ -371,6 +419,133 @@ function App() {
         return;
       }
       setError(`No se pudo crear la actividad. ${err.message}`);
+    }
+  }
+
+  async function renameSelectedProject() {
+    if (!canEdit) {
+      setError('Tu perfil es de solo lectura para proyectos.');
+      return;
+    }
+    if (!selectedProjectId) {
+      setError('Selecciona un proyecto para renombrar.');
+      return;
+    }
+
+    const nextName = projectRename.trim();
+    if (!nextName) {
+      setError('Ingresa un nuevo nombre para el proyecto.');
+      return;
+    }
+
+    setError('');
+    setMessage('');
+
+    try {
+      const data = await authenticatedRequest(`/projects/${selectedProjectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nextName }),
+      });
+
+      setProjects((prev) => {
+        const next = prev.map((item) => (item.id === data.id ? { ...item, ...data } : item));
+        writeProjectsCache(next);
+        return next;
+      });
+      setProjectRename(data.name || nextName);
+      setMessage('Proyecto renombrado correctamente.');
+      await loadProject(selectedProjectId);
+    } catch (err) {
+      if (err.status === 401) {
+        handleLogout('Sesion expirada. Inicia sesion nuevamente.');
+        return;
+      }
+      if (err.status === 403) {
+        setError('No tienes permisos para renombrar proyectos con este rol.');
+        return;
+      }
+      setError(`No se pudo renombrar el proyecto. ${err.message}`);
+    }
+  }
+
+  async function deleteSelectedProject() {
+    if (!canEdit) {
+      setError('Tu perfil es de solo lectura para proyectos.');
+      return;
+    }
+    if (!selectedProjectId) {
+      setError('Selecciona un proyecto para eliminar.');
+      return;
+    }
+
+    const confirmed = window.confirm('Esta accion eliminara el proyecto y sus actividades. Deseas continuar?');
+    if (!confirmed) {
+      return;
+    }
+
+    setError('');
+    setMessage('');
+
+    try {
+      await authenticatedRequest(`/projects/${selectedProjectId}`, {
+        method: 'DELETE',
+      });
+
+      const deletedId = Number(selectedProjectId);
+      setProjects((prev) => {
+        const next = prev.filter((item) => item.id !== deletedId);
+        writeProjectsCache(next);
+        return next;
+      });
+      setSelectedProjectId('');
+      setActivities([]);
+      setSummary(null);
+      setProjectRename('');
+      setMessage('Proyecto eliminado correctamente.');
+    } catch (err) {
+      if (err.status === 401) {
+        handleLogout('Sesion expirada. Inicia sesion nuevamente.');
+        return;
+      }
+      if (err.status === 403) {
+        setError('No tienes permisos para eliminar proyectos con este rol.');
+        return;
+      }
+      setError(`No se pudo eliminar el proyecto. ${err.message}`);
+    }
+  }
+
+  async function deleteActivity(activityId) {
+    if (!canEdit) {
+      setError('Tu perfil es de solo lectura para actividades.');
+      return;
+    }
+
+    const confirmed = window.confirm('Eliminar esta actividad?');
+    if (!confirmed) {
+      return;
+    }
+
+    setError('');
+    setMessage('');
+
+    try {
+      await authenticatedRequest(`/activities/${activityId}`, {
+        method: 'DELETE',
+      });
+      setMessage('Actividad eliminada correctamente.');
+      await loadProject(selectedProjectId);
+    } catch (err) {
+      if (err.status === 401) {
+        handleLogout('Sesion expirada. Inicia sesion nuevamente.');
+        return;
+      }
+      if (err.status === 403) {
+        setError('No tienes permisos para eliminar actividades con este rol.');
+        return;
+      }
+      setError(`No se pudo eliminar la actividad. ${err.message}`);
     }
   }
 
@@ -388,23 +563,20 @@ function App() {
         return;
       }
 
+      const validatedMetrics = validateActivityMetrics(editingForm);
+
       await authenticatedRequest(`/activities/${activityId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: nextName,
-          data_payload: {
-            bac: Number(editingForm.bac),
-            planned_pct: Number(editingForm.planned_pct),
-            actual_pct: Number(editingForm.actual_pct),
-            ac: Number(editingForm.ac),
-          },
+          data_payload: validatedMetrics,
         }),
       });
 
       setMessage('Actividad actualizada correctamente.');
       setEditingActivityId(null);
-      setEditingForm({ name: '', bac: '1000', planned_pct: '50', actual_pct: '30', ac: '400' });
+      setEditingForm({ name: '', bac: '', planned_pct: '', actual_pct: '', ac: '' });
       await loadProject(selectedProjectId);
     } catch (err) {
       if (err.status === 401) {
@@ -437,7 +609,7 @@ function App() {
 
   function cancelEdit() {
     setEditingActivityId(null);
-    setEditingForm({ name: '', bac: '1000', planned_pct: '50', actual_pct: '30', ac: '400' });
+    setEditingForm({ name: '', bac: '', planned_pct: '', actual_pct: '', ac: '' });
   }
 
   function getStatusColor(value) {
@@ -447,15 +619,206 @@ function App() {
     return value >= 1 ? '#27ae60' : '#c0392b';
   }
 
+  function parseNumericField(rawValue, label) {
+    const normalized = String(rawValue ?? '').trim();
+    if (!normalized) {
+      throw new Error(`Completa el campo ${label}.`);
+    }
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed)) {
+      throw new Error(`El campo ${label} debe ser numerico.`);
+    }
+    return parsed;
+  }
+
+  function validateActivityMetrics(form) {
+    const bac = parseNumericField(form.bac, 'BAC');
+    const plannedPct = parseNumericField(form.planned_pct, '% planificado');
+    const actualPct = parseNumericField(form.actual_pct, '% real');
+    const ac = parseNumericField(form.ac, 'AC');
+
+    if (bac < 0 || ac < 0) {
+      throw new Error('BAC y AC deben ser mayores o iguales a 0.');
+    }
+    if (plannedPct < 0 || plannedPct > 100 || actualPct < 0 || actualPct > 100) {
+      throw new Error('Los porcentajes deben estar entre 0 y 100.');
+    }
+
+    return {
+      bac,
+      planned_pct: plannedPct,
+      actual_pct: actualPct,
+      ac,
+    };
+  }
+
   function formatNumber(value) {
     return value === null || value === undefined ? 'N/A' : Number(value).toFixed(2);
+  }
+
+  function formatKpiValue(value) {
+    if (value === null || value === undefined) {
+      return 'N/A';
+    }
+    return Number(value).toLocaleString('es-CO', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   }
 
   function getStatusTone(value) {
     if (value === null || value === undefined) {
       return 'neutral';
     }
-    return value >= 1 ? 'good' : 'warn';
+    if (value >= 1) {
+      return 'good';
+    }
+    if (value >= 0.9) {
+      return 'warn';
+    }
+    return 'critical';
+  }
+
+  function getToneMeta(value) {
+    const tone = getStatusTone(value);
+    if (tone === 'good') {
+      return { tone, icon: '▲', label: 'Buen desempeño' };
+    }
+    if (tone === 'warn') {
+      return { tone, icon: '▬', label: 'Desempeño en observación' };
+    }
+    if (tone === 'critical') {
+      return { tone, icon: '▼', label: 'Desempeño en riesgo' };
+    }
+    return { tone, icon: '•', label: 'Sin datos' };
+  }
+
+  function getPerformanceBucket(activity) {
+    const cpiTone = getStatusTone(activity.cpi);
+    const spiTone = getStatusTone(activity.spi);
+    if (cpiTone === 'critical' || spiTone === 'critical') {
+      return 'risk';
+    }
+    if (cpiTone === 'good' && spiTone === 'good') {
+      return 'good';
+    }
+    return 'watch';
+  }
+
+  const selectedProject = projects.find((project) => String(project.id) === String(selectedProjectId));
+
+  const activityRiskSummary = useMemo(() => {
+    return activities.reduce(
+      (acc, activity) => {
+        const bucket = getPerformanceBucket(activity);
+        if (bucket === 'good') {
+          acc.good += 1;
+        } else if (bucket === 'risk') {
+          acc.risk += 1;
+        } else {
+          acc.watch += 1;
+        }
+        return acc;
+      },
+      { good: 0, watch: 0, risk: 0 }
+    );
+  }, [activities]);
+
+  const visibleActivities = useMemo(() => {
+    const normalizedSearch = activitySearch.trim().toLowerCase();
+
+    const filtered = activities.filter((activity) => {
+      const matchesSearch = activity.name.toLowerCase().includes(normalizedSearch);
+      if (!matchesSearch) {
+        return false;
+      }
+      if (activityFilter === 'all') {
+        return true;
+      }
+      return getPerformanceBucket(activity) === activityFilter;
+    });
+
+    const sorted = [...filtered].sort((left, right) => {
+      const leftValue = left[sortConfig.key];
+      const rightValue = right[sortConfig.key];
+
+      if (typeof leftValue === 'string' || typeof rightValue === 'string') {
+        const a = String(leftValue ?? '').toLowerCase();
+        const b = String(rightValue ?? '').toLowerCase();
+        if (a === b) {
+          return 0;
+        }
+        return sortConfig.direction === 'asc' ? (a > b ? 1 : -1) : a > b ? -1 : 1;
+      }
+
+      const a = Number(leftValue ?? 0);
+      const b = Number(rightValue ?? 0);
+      return sortConfig.direction === 'asc' ? a - b : b - a;
+    });
+
+    return sorted;
+  }, [activities, activityFilter, activitySearch, sortConfig]);
+
+  function toggleSort(key) {
+    setSortConfig((prev) => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      }
+      return { key, direction: 'asc' };
+    });
+  }
+
+  function sortLabel(key, label) {
+    if (sortConfig.key !== key) {
+      return label;
+    }
+    return `${label} ${sortConfig.direction === 'asc' ? '↑' : '↓'}`;
+  }
+
+  function exportActivitiesCsv() {
+    if (!selectedProject || visibleActivities.length === 0) {
+      return;
+    }
+
+    const header = ['Actividad', 'BAC', '% Planif.', '% Real', 'PV', 'EV', 'AC', 'CV', 'SV', 'CPI', 'SPI'];
+    const rows = visibleActivities.map((activity) => [
+      activity.name,
+      activity.bac,
+      activity.planned_pct,
+      activity.actual_pct,
+      activity.pv,
+      activity.ev,
+      activity.ac,
+      activity.cv,
+      activity.sv,
+      activity.cpi,
+      activity.spi,
+    ]);
+
+    const csv = [header, ...rows]
+      .map((line) =>
+        line
+          .map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`)
+          .join(',')
+      )
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `evm-${selectedProject.name.replace(/\s+/g, '-').toLowerCase()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function getKpiToneClass(key, value) {
+    if (key === 'cpi' || key === 'spi') {
+      return ` tone-${getStatusTone(value)}`;
+    }
+    return '';
   }
 
   function renderChart() {
@@ -581,8 +944,11 @@ function App() {
         </section>
 
         <section className={`surface controls-grid ${!canEdit ? 'controls-grid-viewer' : ''}`}>
-          <div className="control-block">
-            <label className="field-label">Proyecto activo</label>
+          <h3 className="section-title controls-title">Gestion de proyecto</h3>
+          <p className="muted-text controls-help">Selecciona un proyecto y luego crea o gestiona sus cambios.</p>
+
+          <div className="control-block control-block-active">
+            <label className="field-label">Proyectos del usuario activos</label>
             <select value={selectedProjectId} onChange={(e) => setSelectedProjectId(e.target.value)} className="control-input">
               <option value="">Selecciona un proyecto</option>
               {projects.map((project) => (
@@ -591,6 +957,36 @@ function App() {
                 </option>
               ))}
             </select>
+            {canEdit && selectedProjectId && (
+              <div className="project-actions-panel">
+                <div className="project-actions-row">
+                  <label className="field-label">Renombrar proyecto</label>
+                  <div className="project-actions project-actions-inline">
+                    <input
+                      value={projectRename}
+                      onChange={(e) => setProjectRename(e.target.value)}
+                      placeholder="Nuevo nombre del proyecto"
+                      className="control-input"
+                    />
+                    <button
+                      onClick={renameSelectedProject}
+                      className="btn btn-primary"
+                      type="button"
+                      disabled={!projectRename.trim()}
+                    >
+                      Guardar nombre
+                    </button>
+                  </div>
+                </div>
+
+                <div className="project-actions-row project-danger-zone">
+                  <label className="field-label">Eliminar proyecto</label>
+                  <button onClick={deleteSelectedProject} className="btn btn-danger" type="button">
+                    Eliminar proyecto seleccionado
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="control-block control-block-wide">
@@ -603,19 +999,13 @@ function App() {
                 className="control-input"
                 disabled={!canEdit}
               />
-              <input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Descripcion"
-                className="control-input"
-                disabled={!canEdit}
-              />
               <button onClick={createProject} className="btn btn-primary" type="button" disabled={!canEdit}>
                 Crear proyecto
               </button>
             </div>
             {!canEdit && <p className="muted-text lock-note">Tu perfil actual no puede crear proyectos.</p>}
           </div>
+
         </section>
 
         {message && <div className="alert success">{message}</div>}
@@ -623,92 +1013,141 @@ function App() {
 
         {selectedProjectId ? (
           <>
+            <section className="surface kpi-context">
+              <p className="kpi-context-kicker">Resumen consolidado</p>
+              <h3 className="kpi-context-title">{selectedProject?.name || 'Proyecto seleccionado'}</h3>
+              <div className="kpi-context-tags">
+                <span className="context-tag">Actividades: {activities.length}</span>
+                <span className="context-tag tag-good">Buenas: {activityRiskSummary.good}</span>
+                <span className="context-tag tag-watch">Observación: {activityRiskSummary.watch}</span>
+                <span className="context-tag tag-risk">Riesgo: {activityRiskSummary.risk}</span>
+              </div>
+              <p className="muted-text kpi-context-meta">
+                Este bloque muestra el total del proyecto con {activities.length}{' '}
+                {activities.length === 1 ? 'actividad' : 'actividades'} registradas.
+              </p>
+            </section>
+
             <section className="kpi-grid">
-              <article className="kpi-card">
-                <span>BAC</span>
-                <strong>{formatNumber(summary?.bac)}</strong>
-              </article>
-              <article className="kpi-card">
-                <span>PV</span>
-                <strong>{formatNumber(summary?.pv)}</strong>
-              </article>
-              <article className="kpi-card">
-                <span>EV</span>
-                <strong>{formatNumber(summary?.ev)}</strong>
-              </article>
-              <article className="kpi-card">
-                <span>AC</span>
-                <strong>{formatNumber(summary?.ac)}</strong>
-              </article>
-              <article className={`kpi-card tone-${getStatusTone(summary?.cpi)}`}>
-                <span>CPI</span>
-                <strong>{formatNumber(summary?.cpi)}</strong>
-              </article>
-              <article className={`kpi-card tone-${getStatusTone(summary?.spi)}`}>
-                <span>SPI</span>
-                <strong>{formatNumber(summary?.spi)}</strong>
-              </article>
-              <article className="kpi-card">
-                <span>EAC</span>
-                <strong>{formatNumber(summary?.eac)}</strong>
-              </article>
-              <article className="kpi-card">
-                <span>VAC</span>
-                <strong>{formatNumber(summary?.vac)}</strong>
-              </article>
+              {KPI_CONFIG.map((kpi) => (
+                <article key={kpi.key} className={`kpi-card${getKpiToneClass(kpi.key, summary?.[kpi.key])}`}>
+                  <div className="kpi-head">
+                    <span>{kpi.label}</span>
+                    <div className="kpi-actions">
+                      {(kpi.key === 'cpi' || kpi.key === 'spi') && (
+                        <span
+                          className={`tone-icon tone-${getToneMeta(summary?.[kpi.key]).tone}`}
+                          aria-label={getToneMeta(summary?.[kpi.key]).label}
+                          title={getToneMeta(summary?.[kpi.key]).label}
+                        >
+                          {getToneMeta(summary?.[kpi.key]).icon}
+                        </span>
+                      )}
+                      <span className="kpi-info" tabIndex={0} aria-label={`Info ${kpi.label}`}>
+                        ?
+                        <span className="kpi-tooltip" role="tooltip">{kpi.help}</span>
+                      </span>
+                    </div>
+                  </div>
+                  <strong>{formatKpiValue(summary?.[kpi.key])}</strong>
+                </article>
+              ))}
             </section>
 
             <section className="status-grid">
               <article className={`status-card tone-${getStatusTone(summary?.cpi)}`}>
-                <h3>Costo</h3>
+                <h3>
+                  Costo
+                  <span
+                    className={`tone-icon tone-${getToneMeta(summary?.cpi).tone}`}
+                    aria-label={getToneMeta(summary?.cpi).label}
+                    title={getToneMeta(summary?.cpi).label}
+                  >
+                    {getToneMeta(summary?.cpi).icon}
+                  </span>
+                </h3>
                 <p>{summary?.cpi_interpretation ?? 'Sin datos'}</p>
               </article>
               <article className={`status-card tone-${getStatusTone(summary?.spi)}`}>
-                <h3>Cronograma</h3>
+                <h3>
+                  Cronograma
+                  <span
+                    className={`tone-icon tone-${getToneMeta(summary?.spi).tone}`}
+                    aria-label={getToneMeta(summary?.spi).label}
+                    title={getToneMeta(summary?.spi).label}
+                  >
+                    {getToneMeta(summary?.spi).icon}
+                  </span>
+                </h3>
                 <p>{summary?.spi_interpretation ?? 'Sin datos'}</p>
               </article>
             </section>
 
+            {isProjectLoading && <section className="surface loading-panel">Actualizando datos del proyecto...</section>}
+
             <section className="surface form-surface">
               <h3 className="section-title">Registrar actividad</h3>
-              <form onSubmit={addActivity} className="activity-form">
+              <form onSubmit={addActivity} className="activity-form" autoComplete="off">
                     <input
                       value={activityForm.name}
                       onChange={(e) => setActivityForm({ ...activityForm, name: e.target.value })}
                       placeholder="Nombre"
                       className="control-input"
+                      autoComplete="off"
                       disabled={!canEdit}
                       required
                     />
                     <input
+                      type="number"
                       value={activityForm.bac}
                       onChange={(e) => setActivityForm({ ...activityForm, bac: e.target.value })}
                       placeholder="BAC"
                       className="control-input"
+                      autoComplete="off"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
                       disabled={!canEdit}
                       required
                     />
                     <input
+                      type="number"
                       value={activityForm.planned_pct}
                       onChange={(e) => setActivityForm({ ...activityForm, planned_pct: e.target.value })}
                       placeholder="% planificado"
                       className="control-input"
+                      autoComplete="off"
+                      inputMode="decimal"
+                      min="0"
+                      max="100"
+                      step="0.01"
                       disabled={!canEdit}
                       required
                     />
                     <input
+                      type="number"
                       value={activityForm.actual_pct}
                       onChange={(e) => setActivityForm({ ...activityForm, actual_pct: e.target.value })}
                       placeholder="% real"
                       className="control-input"
+                      autoComplete="off"
+                      inputMode="decimal"
+                      min="0"
+                      max="100"
+                      step="0.01"
                       disabled={!canEdit}
                       required
                     />
                     <input
+                      type="number"
                       value={activityForm.ac}
                       onChange={(e) => setActivityForm({ ...activityForm, ac: e.target.value })}
                       placeholder="AC"
                       className="control-input"
+                      autoComplete="off"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
                       disabled={!canEdit}
                       required
                     />
@@ -720,27 +1159,51 @@ function App() {
             </section>
 
             <section className="surface table-surface">
-              <h3 className="section-title">Indicadores por actividad</h3>
+              <div className="table-header-modern">
+                <h3 className="section-title">Indicadores por actividad</h3>
+                <div className="table-toolbar">
+                  <input
+                    value={activitySearch}
+                    onChange={(e) => setActivitySearch(e.target.value)}
+                    placeholder="Buscar actividad..."
+                    className="control-input"
+                  />
+                  <select value={activityFilter} onChange={(e) => setActivityFilter(e.target.value)} className="control-input">
+                    <option value="all">Todas</option>
+                    <option value="good">Buen desempeño</option>
+                    <option value="watch">En observación</option>
+                    <option value="risk">En riesgo</option>
+                  </select>
+                  <button
+                    type="button"
+                    className="btn btn-muted"
+                    onClick={exportActivitiesCsv}
+                    disabled={visibleActivities.length === 0}
+                  >
+                    Exportar CSV
+                  </button>
+                </div>
+              </div>
               <div className="table-scroll">
                 <table className="evm-table">
                       <thead>
                         <tr>
-                          <th>Actividad</th>
-                          <th>BAC</th>
-                          <th>% Planif.</th>
-                          <th>% Real</th>
-                          <th>PV</th>
-                          <th>EV</th>
-                          <th>AC</th>
-                          <th>CV</th>
-                          <th>SV</th>
-                          <th>CPI</th>
-                          <th>SPI</th>
+                          <th onClick={() => toggleSort('name')}>{sortLabel('name', 'Actividad')}</th>
+                          <th onClick={() => toggleSort('bac')}>{sortLabel('bac', 'BAC')}</th>
+                          <th onClick={() => toggleSort('planned_pct')}>{sortLabel('planned_pct', '% Planif.')}</th>
+                          <th onClick={() => toggleSort('actual_pct')}>{sortLabel('actual_pct', '% Real')}</th>
+                          <th onClick={() => toggleSort('pv')}>{sortLabel('pv', 'PV')}</th>
+                          <th onClick={() => toggleSort('ev')}>{sortLabel('ev', 'EV')}</th>
+                          <th onClick={() => toggleSort('ac')}>{sortLabel('ac', 'AC')}</th>
+                          <th onClick={() => toggleSort('cv')}>{sortLabel('cv', 'CV')}</th>
+                          <th onClick={() => toggleSort('sv')}>{sortLabel('sv', 'SV')}</th>
+                          <th onClick={() => toggleSort('cpi')}>{sortLabel('cpi', 'CPI')}</th>
+                          <th onClick={() => toggleSort('spi')}>{sortLabel('spi', 'SPI')}</th>
                           <th>Accion</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {activities.map((activity) => (
+                        {visibleActivities.map((activity) => (
                           <tr key={activity.id}>
                             <td>
                               {editingActivityId === activity.id ? (
@@ -756,9 +1219,13 @@ function App() {
                             <td>
                               {editingActivityId === activity.id ? (
                                 <input
+                                  type="number"
                                   value={editingForm.bac}
                                   onChange={(e) => setEditingForm({ ...editingForm, bac: e.target.value })}
                                   className="table-input"
+                                  inputMode="decimal"
+                                  min="0"
+                                  step="0.01"
                                 />
                               ) : (
                                 formatNumber(activity.bac)
@@ -767,9 +1234,14 @@ function App() {
                             <td>
                               {editingActivityId === activity.id ? (
                                 <input
+                                  type="number"
                                   value={editingForm.planned_pct}
                                   onChange={(e) => setEditingForm({ ...editingForm, planned_pct: e.target.value })}
                                   className="table-input"
+                                  inputMode="decimal"
+                                  min="0"
+                                  max="100"
+                                  step="0.01"
                                 />
                               ) : (
                                 `${formatNumber(activity.planned_pct)}%`
@@ -778,9 +1250,14 @@ function App() {
                             <td>
                               {editingActivityId === activity.id ? (
                                 <input
+                                  type="number"
                                   value={editingForm.actual_pct}
                                   onChange={(e) => setEditingForm({ ...editingForm, actual_pct: e.target.value })}
                                   className="table-input"
+                                  inputMode="decimal"
+                                  min="0"
+                                  max="100"
+                                  step="0.01"
                                 />
                               ) : (
                                 `${formatNumber(activity.actual_pct)}%`
@@ -791,9 +1268,13 @@ function App() {
                             <td>
                               {editingActivityId === activity.id ? (
                                 <input
+                                  type="number"
                                   value={editingForm.ac}
                                   onChange={(e) => setEditingForm({ ...editingForm, ac: e.target.value })}
                                   className="table-input"
+                                  inputMode="decimal"
+                                  min="0"
+                                  step="0.01"
                                 />
                               ) : (
                                 formatNumber(activity.ac)
@@ -801,8 +1282,30 @@ function App() {
                             </td>
                             <td>{formatNumber(activity.cv)}</td>
                             <td>{formatNumber(activity.sv)}</td>
-                            <td className={`tone-${getStatusTone(activity.cpi)}`}>{formatNumber(activity.cpi)}</td>
-                            <td className={`tone-${getStatusTone(activity.spi)}`}>{formatNumber(activity.spi)}</td>
+                            <td className={`tone-${getStatusTone(activity.cpi)}`}>
+                              <span className="metric-with-icon">
+                                <span
+                                  className={`tone-icon tone-${getToneMeta(activity.cpi).tone}`}
+                                  aria-label={getToneMeta(activity.cpi).label}
+                                  title={getToneMeta(activity.cpi).label}
+                                >
+                                  {getToneMeta(activity.cpi).icon}
+                                </span>
+                                {formatNumber(activity.cpi)}
+                              </span>
+                            </td>
+                            <td className={`tone-${getStatusTone(activity.spi)}`}>
+                              <span className="metric-with-icon">
+                                <span
+                                  className={`tone-icon tone-${getToneMeta(activity.spi).tone}`}
+                                  aria-label={getToneMeta(activity.spi).label}
+                                  title={getToneMeta(activity.spi).label}
+                                >
+                                  {getToneMeta(activity.spi).icon}
+                                </span>
+                                {formatNumber(activity.spi)}
+                              </span>
+                            </td>
                             <td>
                               {editingActivityId === activity.id ? (
                                 <div className="actions-row">
@@ -816,13 +1319,25 @@ function App() {
                               ) : !canEdit ? (
                                 <span className="muted-text">Solo lectura</span>
                               ) : (
-                                <button type="button" onClick={() => startEdit(activity)} className="btn btn-small btn-primary">
-                                  Editar
-                                </button>
+                                <div className="actions-row">
+                                  <button type="button" onClick={() => startEdit(activity)} className="btn btn-small btn-primary">
+                                    Editar
+                                  </button>
+                                  <button type="button" onClick={() => deleteActivity(activity.id)} className="btn btn-small btn-danger">
+                                    Eliminar
+                                  </button>
+                                </div>
                               )}
                             </td>
                           </tr>
                         ))}
+                        {visibleActivities.length === 0 && (
+                          <tr>
+                            <td colSpan={12} className="table-empty-message">
+                              No hay actividades que coincidan con los filtros aplicados.
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                 </table>
               </div>
