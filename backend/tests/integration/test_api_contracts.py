@@ -1,5 +1,6 @@
-from fastapi.testclient import TestClient
 from uuid import uuid4
+
+from fastapi.testclient import TestClient
 
 from backend.app import db
 from backend.app.main import app
@@ -101,3 +102,61 @@ def test_viewer_cannot_mutate_projects():
 
     response = client.post("/api/projects", json=payload, headers=headers)
     assert response.status_code == 403
+
+
+def test_rename_and_delete_project():
+    headers = auth_headers("project_lead")
+    payload = {
+        "name": f"Rename Project {uuid4().hex[:8]}",
+        "description": "Project to rename",
+        "status": "active",
+    }
+
+    create_response = client.post("/api/projects", json=payload, headers=headers)
+    assert create_response.status_code == 201
+    project_id = create_response.json()["id"]
+
+    new_name = f"Renamed Project {uuid4().hex[:8]}"
+    rename_response = client.patch(
+        f"/api/projects/{project_id}",
+        json={"name": new_name},
+        headers=headers,
+    )
+    assert rename_response.status_code == 200
+    assert rename_response.json()["name"] == new_name
+
+    delete_response = client.delete(f"/api/projects/{project_id}", headers=headers)
+    assert delete_response.status_code == 200
+
+    detail_response = client.get(f"/api/projects/{project_id}", headers=headers)
+    assert detail_response.status_code == 404
+
+
+def test_delete_activity_and_viewer_forbidden_delete():
+    lead_headers = auth_headers("project_lead")
+    viewer_headers = auth_headers("viewer")
+
+    project_payload = {
+        "name": f"Delete Activity Project {uuid4().hex[:8]}",
+        "description": "Project for delete activity",
+    }
+    project_response = client.post("/api/projects", json=project_payload, headers=lead_headers)
+    assert project_response.status_code == 201
+    project_id = project_response.json()["id"]
+
+    activity_payload = {
+        "project_id": project_id,
+        "name": "Disposable Activity",
+        "description": "Will be deleted",
+        "kind": "test",
+        "status": "pending",
+    }
+    create_activity_response = client.post("/api/activities", json=activity_payload, headers=lead_headers)
+    assert create_activity_response.status_code == 201
+    activity_id = create_activity_response.json()["id"]
+
+    viewer_delete = client.delete(f"/api/activities/{activity_id}", headers=viewer_headers)
+    assert viewer_delete.status_code == 403
+
+    lead_delete = client.delete(f"/api/activities/{activity_id}", headers=lead_headers)
+    assert lead_delete.status_code == 200
