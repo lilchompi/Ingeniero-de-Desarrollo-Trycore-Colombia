@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from .. import db
 from ..domain.evm_service import EVMService
 from ..infrastructure.models import Activity, Project
+from ..security import AuthUser, get_current_user, require_roles
 from .schemas import (
     ActivityCreate,
     ActivityRead,
@@ -28,12 +29,19 @@ def get_db() -> Generator[Session, None, None]:
 
 
 @router.get("/projects", response_model=list[ProjectRead])
-def list_projects(db_session: Session = Depends(get_db)) -> list[ProjectRead]:
+def list_projects(
+    db_session: Session = Depends(get_db),
+    _: AuthUser = Depends(get_current_user),
+) -> list[ProjectRead]:
     return db_session.query(Project).order_by(Project.id.desc()).all()
 
 
 @router.post("/projects", response_model=ProjectRead, status_code=201)
-def create_project(payload: ProjectCreate, db_session: Session = Depends(get_db)) -> ProjectRead:
+def create_project(
+    payload: ProjectCreate,
+    db_session: Session = Depends(get_db),
+    _: AuthUser = Depends(require_roles("project_lead", "admin")),
+) -> ProjectRead:
     existing = db_session.query(Project).filter(Project.name == payload.name).first()
     if existing:
         raise HTTPException(status_code=400, detail="Project with this name already exists")
@@ -50,7 +58,11 @@ def create_project(payload: ProjectCreate, db_session: Session = Depends(get_db)
 
 
 @router.get("/projects/{project_id}", response_model=ProjectRead)
-def get_project(project_id: int, db_session: Session = Depends(get_db)) -> ProjectRead:
+def get_project(
+    project_id: int,
+    db_session: Session = Depends(get_db),
+    _: AuthUser = Depends(get_current_user),
+) -> ProjectRead:
     project = db_session.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -58,7 +70,11 @@ def get_project(project_id: int, db_session: Session = Depends(get_db)) -> Proje
 
 
 @router.post("/activities", response_model=ActivityRead, status_code=201)
-def create_activity(payload: ActivityCreate, db_session: Session = Depends(get_db)) -> ActivityRead:
+def create_activity(
+    payload: ActivityCreate,
+    db_session: Session = Depends(get_db),
+    _: AuthUser = Depends(require_roles("project_lead", "admin")),
+) -> ActivityRead:
     project = db_session.query(Project).filter(Project.id == payload.project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -82,6 +98,7 @@ def update_activity(
     activity_id: int,
     payload: ActivityUpdate,
     db_session: Session = Depends(get_db),
+    _: AuthUser = Depends(require_roles("project_lead", "admin")),
 ) -> ActivityRead:
     activity = db_session.query(Activity).filter(Activity.id == activity_id).first()
     if not activity:
@@ -99,7 +116,10 @@ def update_activity(
 
 
 @router.post("/evm/calculate", response_model=EVMResponse)
-def calculate_evm(payload: EVMRequest) -> EVMResponse:
+def calculate_evm(
+    payload: EVMRequest,
+    _: AuthUser = Depends(get_current_user),
+) -> EVMResponse:
     result = EVMService.calculate(
         planned_value=payload.planned_value,
         earned_value=payload.earned_value,
